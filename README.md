@@ -16,6 +16,7 @@ proyecto guarda sus datos en Neon, así que pasó a ser eso.
 | `neon_storage/database.py` | La conexión: limpia la `DATABASE_URL` (comillas, saltos de línea, `postgres://`), crea el motor y da `get_db` para FastAPI. |
 | `neon_storage/models.py` | Todas las tablas. |
 | `neon_storage/schema.py` | `prepare_database()`: crea las tablas que falten y añade las columnas nuevas a las que ya existían. No tumba el arranque si Neon está dormida. |
+| `neon_storage/courses.py` | Lo común de los cursos: el Curso general, los códigos de inscripción y si alguien está inscrito. |
 
 ```python
 from neon_storage import get_db, prepare_database
@@ -30,7 +31,7 @@ pueden leerla para sus informes.
 | Tabla | La escribe | La leen también |
 |---|---|---|
 | `Usuario`, `TipoDiscapacidad` | user-management | assessment, progress-tracking |
-| `CourseOverride` | course-content | progress-tracking |
+| `Course`, `CourseEnrollment`, `CourseOverride` | course-content | assessment, progress-tracking |
 | `QuizAnswer`, `ActivityCompletion` | assessment | — |
 | `student_performance`, `TeacherReview`, `ContentReview` | progress-tracking | — |
 
@@ -50,3 +51,15 @@ los servicios se despliegan por separado.
 pip install -r requirements.txt
 pytest tests
 ```
+
+## Cursos por docente
+
+Cada docente tiene sus propios cursos (`Course`) y los estudiantes entran con el
+código de inscripción (`CourseEnrollment`). Las ediciones, las respuestas, las
+actividades terminadas y las revisiones llevan `course_id`.
+
+El **Curso general** no es de ningún docente. Lo ven todos los estudiantes sin
+inscribirse y solo lo edita la coordinación. `prepare_database()` lo crea la
+primera vez y le asigna todo lo que no tenga curso: lo de antes de este cambio,
+y lo que siga escribiendo el monolito mientras conviva con el gateway.
+

@@ -17,7 +17,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
-from sqlalchemy.sql import func
+from sqlalchemy.sql import false, func
 from neon_storage.database import Base
 
 
@@ -54,6 +54,43 @@ class StudentPerformance(Base):
     created_at = Column(Date, server_default=func.current_date())
 
 
+class Course(Base):
+    """Un curso de Python: el temario de fabrica mas lo que su docente cambie.
+
+    Cada docente tiene los suyos y los edita a su manera; lo que cambia en uno
+    no toca a los demas. El estudiante entra con el codigo que le da su
+    docente (`join_code`) y puede estar en varios cursos a la vez.
+
+    El Curso general (`is_general`) no es de ningun docente: guarda lo que se
+    edito antes de que hubiera cursos por docente y lo ve todo estudiante sin
+    inscribirse. Solo lo edita la coordinacion.
+    """
+
+    __tablename__ = "Course"
+
+    id = Column(Integer, primary_key=True, index=True)
+    teacher_id = Column(Integer, ForeignKey("Usuario.id_usuario"), nullable=True, index=True)
+    title = Column(String(120), nullable=False)
+    description = Column(Text, nullable=False, server_default="")
+    join_code = Column(String(16), nullable=False, unique=True, index=True)
+    is_general = Column(Boolean, nullable=False, server_default=false())
+    created_at = Column(DateTime, server_default=func.now())
+
+
+class CourseEnrollment(Base):
+    """Que estudiante esta en que curso. Una fila por estudiante y curso."""
+
+    __tablename__ = "CourseEnrollment"
+    __table_args__ = (
+        UniqueConstraint("course_id", "student_id", name="uq_course_enrollment"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    course_id = Column(Integer, ForeignKey("Course.id"), nullable=False, index=True)
+    student_id = Column(Integer, ForeignKey("Usuario.id_usuario"), nullable=False, index=True)
+    enrolled_at = Column(DateTime, server_default=func.now())
+
+
 class CourseOverride(Base):
     """Lo que el docente ha cambiado del curso.
 
@@ -65,12 +102,20 @@ class CourseOverride(Base):
     `scope` dice que se edito: 'section' para el contenido de una seccion o
     'module' para el nombre de un modulo. `target_id` es 'm1-s1' o '1'.
     `payload` lleva el JSON con lo editado.
+
+    Cada edicion es de un curso (`course_id`): dos docentes pueden cambiar la
+    misma seccion cada uno en el suyo sin pisarse.
     """
 
     __tablename__ = "CourseOverride"
-    __table_args__ = (UniqueConstraint("scope", "target_id", name="uq_course_override"),)
+    __table_args__ = (
+        UniqueConstraint(
+            "course_id", "scope", "target_id", name="uq_course_override_course"
+        ),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
+    course_id = Column(Integer, ForeignKey("Course.id"), nullable=True, index=True)
     scope = Column(String(20), nullable=False, index=True)
     target_id = Column(String(60), nullable=False, index=True)
     payload = Column(Text, nullable=False)
@@ -97,6 +142,9 @@ class QuizAnswer(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     usuario_id = Column(Integer, ForeignKey("Usuario.id_usuario"), nullable=True, index=True)
+    # En que curso se respondio: el mismo estudiante puede hacer la misma
+    # seccion en dos cursos, y cada docente solo debe ver lo del suyo.
+    course_id = Column(Integer, ForeignKey("Course.id"), nullable=True, index=True)
 
     # Donde estaba la pregunta.
     section_id = Column(String(40), nullable=False, index=True)
@@ -132,12 +180,17 @@ class ActivityCompletion(Base):
     __tablename__ = "ActivityCompletion"
     __table_args__ = (
         UniqueConstraint(
-            "usuario_id", "section_id", "activity", name="uq_activity_completion"
+            "usuario_id",
+            "course_id",
+            "section_id",
+            "activity",
+            name="uq_activity_completion_course",
         ),
     )
 
     id = Column(Integer, primary_key=True, index=True)
     usuario_id = Column(Integer, ForeignKey("Usuario.id_usuario"), nullable=True, index=True)
+    course_id = Column(Integer, ForeignKey("Course.id"), nullable=True, index=True)
 
     section_id = Column(String(40), nullable=False, index=True)
     activity = Column(String(20), nullable=False, index=True)
@@ -181,9 +234,16 @@ class ContentReview(Base):
     """
 
     __tablename__ = "ContentReview"
-    __table_args__ = (UniqueConstraint("section_id", name="uq_content_review_section"),)
+    __table_args__ = (
+        UniqueConstraint(
+            "course_id", "section_id", name="uq_content_review_course_section"
+        ),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
+    # La revision es de la seccion *de un curso*: aprobar la de un docente no
+    # dice nada de la misma seccion en el curso de otro.
+    course_id = Column(Integer, ForeignKey("Course.id"), nullable=True, index=True)
     section_id = Column(String(40), nullable=False, index=True)
 
     # 'aprobado' o 'observado'.

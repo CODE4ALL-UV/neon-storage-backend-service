@@ -12,7 +12,7 @@ from sqlalchemy import inspect, text
 # Importar los modelos es lo que los registra en Base.metadata. Sin esta línea
 # create_all() no sabría que hay tablas que crear.
 from neon_storage import models  # noqa: F401
-from neon_storage.database import Base, engine
+from neon_storage.database import Base, SessionLocal, engine
 
 
 def create_tables() -> None:
@@ -57,6 +57,95 @@ def ensure_quiz_answer_columns() -> None:
             )
 
 
+# Tablas que pasan a ser de un curso, con la restricción única que tenían y la
+# que la sustituye ahora que el curso forma parte de la clave.
+COURSE_SCOPED_TABLES = ("CourseOverride", "QuizAnswer", "ActivityCompletion", "ContentReview")
+COURSE_UNIQUES = {
+    "CourseOverride": (
+        "uq_course_override",
+        "uq_course_override_course",
+        '"course_id", "scope", "target_id"',
+    ),
+    "ActivityCompletion": (
+        "uq_activity_completion",
+        "uq_activity_completion_course",
+        '"usuario_id", "course_id", "section_id", "activity"',
+    ),
+    "ContentReview": (
+        "uq_content_review_section",
+        "uq_content_review_course_section",
+        '"course_id", "section_id"',
+    ),
+}
+
+
+def ensure_courses() -> None:
+    """Pasa la base de «un curso para todos» a «un curso por docente».
+
+    1. Añade `course_id` a las ediciones, las respuestas, las actividades
+       terminadas y las revisiones.
+    2. Crea el Curso general si no existe.
+    3. Lo que no tenga curso pasa al Curso general. Es lo de antes de este
+       cambio, y también lo que siga escribiendo el monolito mientras conviva
+       con el gateway: se vuelve a repartir en cada arranque.
+    4. Cambia las restricciones únicas para que incluyan el curso. Solo en
+       PostgreSQL: SQLite no deja cambiarlas, y sus tablas de prueba ya nacen
+       con las nuevas.
+    """
+    from neon_storage.courses import general_course
+
+    inspector = inspect(engine)
+    tables = set(inspector.get_table_names())
+
+    for table in COURSE_SCOPED_TABLES:
+        if table not in tables:
+            continue
+        columns = {column["name"] for column in inspector.get_columns(table)}
+        with engine.begin() as connection:
+            if "course_id" not in columns:
+                connection.execute(
+                    text(
+                        f'ALTER TABLE "{table}" ADD COLUMN "course_id" INTEGER NULL '
+                        'REFERENCES "Course"(id)'
+                    )
+                )
+            connection.execute(
+                text(
+                    f'CREATE INDEX IF NOT EXISTS "ix_{table}_course_id" '
+                    f'ON "{table}" ("course_id")'
+                )
+            )
+
+    db = SessionLocal()
+    try:
+        general_id = general_course(db).id
+    finally:
+        db.close()
+
+    with engine.begin() as connection:
+        for table in COURSE_SCOPED_TABLES:
+            if table in tables:
+                connection.execute(
+                    text(f'UPDATE "{table}" SET "course_id" = :g WHERE "course_id" IS NULL'),
+                    {"g": general_id},
+                )
+
+    if engine.dialect.name != "postgresql":
+        return
+
+    for table, (old, new, columns) in COURSE_UNIQUES.items():
+        if table not in tables:
+            continue
+        existing = {u["name"] for u in inspect(engine).get_unique_constraints(table)}
+        with engine.begin() as connection:
+            if old in existing:
+                connection.execute(text(f'ALTER TABLE "{table}" DROP CONSTRAINT "{old}"'))
+            if new not in existing:
+                connection.execute(
+                    text(f'ALTER TABLE "{table}" ADD CONSTRAINT "{new}" UNIQUE ({columns})')
+                )
+
+
 def prepare_database() -> None:
     """Preparar la base al arrancar, pero sin que un fallo tumbe el servicio.
 
@@ -69,6 +158,7 @@ def prepare_database() -> None:
         create_tables()
         ensure_user_role_column()
         ensure_quiz_answer_columns()
+        ensure_courses()
     except Exception as exc:  # pragma: no cover - depende del entorno
         print(f"[arranque] No se pudo preparar la base de datos: {exc}")
         print("[arranque] El servicio arranca igualmente; se reintentara al usarla.")
