@@ -87,7 +87,7 @@ def _old_schema_with_data():
         ))
 
 
-from sqlalchemy import Table, MetaData, func, select, inspect
+from sqlalchemy import Table, MetaData, func, select
 
 def test_old_data_ends_up_in_the_general_course():
     _old_schema_with_data()
@@ -105,11 +105,9 @@ def test_old_data_ends_up_in_the_general_course():
 
         with engine.connect() as connection:
             for table_name in COURSE_SCOPED_TABLES:
-                columns = {c["name"] for c in inspector.get_columns(table_name)}
-                assert "course_id" in columns, table_name
-
-                # Reflejamos la tabla para construir la consulta mediante SQLAlchemy Core
-                table = Table(table_name, metadata, autoload_with=engine)
+                # Reflect the table to build the query using SQLAlchemy Core
+                table = Table(table_name, metadata, autoload_with=connection)
+                if "course_id" not in table.c: raise AssertionError(table_name)
 
                 orphans = connection.execute(
                     select(func.count()).select_from(table).where(table.c.course_id.is_(None))
@@ -119,8 +117,8 @@ def test_old_data_ends_up_in_the_general_course():
                     select(func.count()).select_from(table).where(table.c.course_id == general.id)
                 ).scalar()
 
-                assert orphans == 0, table_name
-                assert assigned == 1, table_name
+                if orphans != 0: raise AssertionError(table_name)
+                if assigned != 1: raise AssertionError(table_name)
     finally:
         db.close()
 
