@@ -94,7 +94,6 @@ def test_old_data_ends_up_in_the_general_course():
 
     prepare_database()
 
-    inspector = inspect(engine)
     db = SessionLocal()
     metadata = MetaData()
     try:
