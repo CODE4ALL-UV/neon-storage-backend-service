@@ -93,6 +93,7 @@ def ensure_courses() -> None:
        con las nuevas.
     """
     from neon_storage.courses import general_course
+    from sqlalchemy import Table, MetaData, update
 
     inspector = inspect(engine)
     tables = set(inspector.get_table_names())
@@ -122,13 +123,23 @@ def ensure_courses() -> None:
     finally:
         db.close()
 
+    # Inicializas MetaData fuera o dentro del bloque según la estructura de tu función
+    metadata = MetaData()
+
     with engine.begin() as connection:
-        for table in COURSE_SCOPED_TABLES:
-            if table in tables:
-                connection.execute(
-                    text(f'UPDATE "{table}" SET "course_id" = :g WHERE "course_id" IS NULL'),
-                    {"g": general_id},
+        for table_name in COURSE_SCOPED_TABLES:
+            if table_name in tables:
+                # Reflejamos la estructura de la tabla de forma segura
+                table = Table(table_name, metadata, autoload_with=connection)
+                
+                # Construimos la consulta UPDATE usando el constructor de SQLAlchemy
+                stmt = (
+                    update(table)
+                    .where(table.c.course_id.is_(None))
+                    .values(course_id=general_id)
                 )
+                
+                connection.execute(stmt)
 
     if engine.dialect.name != "postgresql":
         return
