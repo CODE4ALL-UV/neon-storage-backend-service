@@ -41,3 +41,22 @@ def test_missing_url_explains_where_to_set_it():
 def test_only_the_tail_of_the_url_says_so():
     with pytest.raises(ValueError, match="solo trae la parte final"):
         _clean_database_url("?sslmode=require")
+
+
+def test_an_empty_url_says_it_is_empty():
+    for raw in ("", "   ", '""', "' '"):
+        with pytest.raises(ValueError, match="esta vacia"):
+            _clean_database_url(raw)
+
+
+def test_something_that_is_not_a_url_says_what_arrived():
+    with pytest.raises(ValueError, match="no parece una cadena de conexion") as refused:
+        _clean_database_url("ep-demo-123.us-east-2.aws.neon.tech/neondb")
+
+    # Enseña cómo empieza lo que llegó, para que se vea qué se copió mal.
+    assert "Llego esto: ep-demo-123" in str(refused.value)
+
+
+def test_a_tail_copied_without_the_question_mark_also_says_so():
+    with pytest.raises(ValueError, match="solo trae la parte final"):
+        _clean_database_url("sslmode=require&channel_binding=require")
