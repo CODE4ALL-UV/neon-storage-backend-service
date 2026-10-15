@@ -102,11 +102,11 @@ def ensure_courses() -> None:
         if table not in tables:
             continue
         columns = {column["name"] for column in inspector.get_columns(table)}
+        # SQLAlchemy no tiene ADD COLUMN sin Alembic, así que va en SQL, y el
+        # índice con él. Los nombres salen de COURSE_SCOPED_TABLES, nunca del
+        # usuario: el aviso de inyección de Semgrep no aplica.
         with engine.begin() as connection:
             if "course_id" not in columns:
-                # SQLAlchemy no tiene ADD COLUMN sin Alembic, así que va en SQL.
-                # Los nombres salen de COURSE_SCOPED_TABLES, nunca del usuario:
-                # el aviso de inyección de Semgrep no aplica.
                 connection.execute(
                     text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
                         f'ALTER TABLE "{table}" ADD COLUMN "course_id" INTEGER NULL '
@@ -114,7 +114,7 @@ def ensure_courses() -> None:
                     )
                 )
             connection.execute(
-                text(
+                text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
                     f'CREATE INDEX IF NOT EXISTS "ix_{table}_course_id" '
                     f'ON "{table}" ("course_id")'
                 )
