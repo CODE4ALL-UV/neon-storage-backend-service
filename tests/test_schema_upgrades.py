@@ -7,7 +7,7 @@ día sin perder lo que ya había.
 """
 
 import pytest
-from sqlalchemy import inspect, text
+from sqlalchemy import MetaData, Table, inspect, text
 
 from neon_storage.courses import general_course
 from neon_storage.database import Base, SessionLocal, engine
@@ -38,7 +38,7 @@ def _drop_everything():
     Base.metadata.drop_all(bind=engine)
     with engine.begin() as connection:
         for table in COURSE_SCOPED_TABLES:
-            connection.execute(text(f'DROP TABLE IF EXISTS "{table}"'))
+            Table(table, MetaData()).drop(connection, checkfirst=True)
 
 
 def _columns(table: str) -> set[str]:

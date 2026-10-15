@@ -7,7 +7,7 @@ vez de quedar huérfano.
 """
 
 import pytest
-from sqlalchemy import inspect, text
+from sqlalchemy import MetaData, Table, func, select, text
 
 from neon_storage.courses import (
     GENERAL_TITLE,
@@ -46,6 +46,12 @@ OLD_TABLES = {
 }
 
 
+def _drop_course_tables(connection):
+    """Borra las tablas con curso, también si quedaron con el esquema antiguo."""
+    for table in COURSE_SCOPED_TABLES:
+        Table(table, MetaData()).drop(connection, checkfirst=True)
+
+
 @pytest.fixture(autouse=True)
 def _back_to_the_current_schema():
     """Deja la base con el esquema de ahora al terminar.
@@ -57,8 +63,7 @@ def _back_to_the_current_schema():
     yield
     Base.metadata.drop_all(bind=engine)
     with engine.begin() as connection:
-        for table in COURSE_SCOPED_TABLES:
-            connection.execute(text(f'DROP TABLE IF EXISTS "{table}"'))
+        _drop_course_tables(connection)
     prepare_database()
 
 
@@ -66,8 +71,7 @@ def _old_schema_with_data():
     """La base tal y como está en producción antes de este cambio."""
     Base.metadata.drop_all(bind=engine)
     with engine.begin() as connection:
-        for table in COURSE_SCOPED_TABLES:
-            connection.execute(text(f'DROP TABLE IF EXISTS "{table}"'))
+        _drop_course_tables(connection)
         for ddl in OLD_TABLES.values():
             connection.execute(text(ddl))
         connection.execute(text(
@@ -86,8 +90,6 @@ def _old_schema_with_data():
             'INSERT INTO "ContentReview" (section_id, status) VALUES (\'m1-s1\', \'aprobado\')'
         ))
 
-
-from sqlalchemy import Table, MetaData, func, select
 
 def test_old_data_ends_up_in_the_general_course():
     _old_schema_with_data()

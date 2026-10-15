@@ -104,8 +104,11 @@ def ensure_courses() -> None:
         columns = {column["name"] for column in inspector.get_columns(table)}
         with engine.begin() as connection:
             if "course_id" not in columns:
+                # SQLAlchemy no tiene ADD COLUMN sin Alembic, así que va en SQL.
+                # Los nombres salen de COURSE_SCOPED_TABLES, nunca del usuario:
+                # el aviso de inyección de Semgrep no aplica.
                 connection.execute(
-                    text(
+                    text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
                         f'ALTER TABLE "{table}" ADD COLUMN "course_id" INTEGER NULL '
                         'REFERENCES "Course"(id)'
                     )
@@ -148,12 +151,14 @@ def ensure_courses() -> None:
         if table not in tables:
             continue
         existing = {u["name"] for u in inspect(engine).get_unique_constraints(table)}
+        # Tabla, restricción y columnas salen de COURSE_UNIQUES, nunca del
+        # usuario: el aviso de inyección de Semgrep no aplica.
         with engine.begin() as connection:
             if old in existing:
-                connection.execute(text(f'ALTER TABLE "{table}" DROP CONSTRAINT "{old}"'))
+                connection.execute(text(f'ALTER TABLE "{table}" DROP CONSTRAINT "{old}"'))  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
             if new not in existing:
                 connection.execute(
-                    text(f'ALTER TABLE "{table}" ADD CONSTRAINT "{new}" UNIQUE ({columns})')
+                    text(f'ALTER TABLE "{table}" ADD CONSTRAINT "{new}" UNIQUE ({columns})')  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
                 )
 
 
